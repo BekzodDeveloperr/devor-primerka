@@ -57,7 +57,8 @@ button.danger{color:var(--warn)}
 button.on{background:var(--soft);border-color:var(--accent)}
 .filebtn{position:relative;overflow:hidden}
 .filebtn input{position:absolute;inset:0;opacity:0;cursor:pointer;font-size:0}
-.cat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px}
+.cat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:8px;max-height:460px;overflow:auto;align-content:start}
+.cat .more{grid-column:1/-1}
 .card{position:relative;border:1px solid var(--line);border-radius:8px;overflow:hidden;cursor:pointer;background:var(--bg)}
 .card:hover{border-color:var(--accent)}
 .card img{display:block;width:100%;aspect-ratio:3/2;object-fit:cover}
@@ -129,8 +130,13 @@ button.on{background:var(--soft);border-color:var(--accent)}
         <button data-f="" class="on">Hammasi</button>
         <button data-f="islomiy:oq">Islomiy · oq</button>
         <button data-f="islomiy:qora">Islomiy · qora</button>
-        <button data-f="oynali">Oynali</button>
+        <button data-f="oynali">Oynali (hammasi)</button>
+        <button data-f="cat:Islomiy shisha print">Shisha print</button>
+        <button data-f="cat:Uy devorlari">Uy devorlari</button>
+        <button data-f="cat:Spalni">Spalni</button>
+        <button data-f="cat:Kuxnya">Kuxnya</button>
       </div>
+      <p class="note" id="catCount"></p>
       <div class="cat" id="cat"></div>
       <p class="note" id="recoNote">Islomiy: 120×80 yoki 150×90 — devorga qarab o'zi tanlaydi. Oynali: joyiga qarab erkin o'lcham.</p>
       <div class="row" style="margin-top:8px">
@@ -240,27 +246,35 @@ function samplePic(bg,fg,title,mirror){
 }
 
 /* ---------- catalog storage ---------- */
-function loadCatalog(){
-  try{const s=localStorage.getItem('kh_catalog');if(s){catalog=JSON.parse(s);return}}catch(e){}
+let shared=[],hidden=new Set(),shown=60;
+try{hidden=new Set(JSON.parse(localStorage.getItem('kh_hidden')||'[]'))}catch(e){}
+async function loadCatalog(){
+  try{const r=await fetch('catalog/catalog.json',{cache:'no-cache'});if(r.ok){shared=(await r.json()).map(c=>({...c,shared:true,name:c.name||(c.cat||'Islomiy')+' '+c.id.split('-').pop(),src:'catalog/'+c.id+'.jpg'}))}}catch(e){}
+  let local=[];try{const s=localStorage.getItem('kh_catalog');if(s)local=JSON.parse(s).filter(c=>!/^s\d$/.test(c.id))}catch(e){}
+  catalog=[...local,...shared.filter(c=>!hidden.has(c.id))];
+  if(catalog.length)return;
   catalog=[
     {id:'s1',name:'Namuna · islomiy',type:'islomiy',color:'qora',mat:'Barxit',ratio:1.5,src:samplePic('#141414','#d9a46a','Namuna 1')},
     {id:'s2',name:'Namuna · islomiy',type:'islomiy',color:'oq',mat:'Koja',ratio:1.5,src:samplePic('#f4f1ea','#8a5a2b','Namuna 2')},
     {id:'s3',name:'Namuna · oynali',type:'oynali',color:'',mat:'Oyna',ratio:1.667,src:samplePic('','#5a6670','Namuna 3',true)}
   ];
 }
-function saveCatalog(){try{localStorage.setItem('kh_catalog',JSON.stringify(catalog));return true}catch(e){toast('Xotira to’ldi: eski mahsulotlarni o’chiring');return false}}
-$('#typeTabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;typeFilter=b.dataset.f;[...$('#typeTabs').children].forEach(x=>x.classList.toggle('on',x===b));renderCat()};
+function saveCatalog(){try{localStorage.setItem('kh_catalog',JSON.stringify(catalog.filter(c=>!c.shared&&!/^s\d$/.test(c.id))));localStorage.setItem('kh_hidden',JSON.stringify([...hidden]));return true}catch(e){toast('Xotira to’ldi: eski mahsulotlarni o’chiring');return false}}
+$('#typeTabs').onclick=e=>{const b=e.target.closest('button');if(!b)return;typeFilter=b.dataset.f;shown=60;[...$('#typeTabs').children].forEach(x=>x.classList.toggle('on',x===b));renderCat()};
 function renderCat(){
   const [ft,fc]=typeFilter.split(':'),box=$('#cat');box.innerHTML='';
   catalog.forEach(c=>{if(!c.type)c.type='islomiy'});
-  catalog.filter(c=>(!ft||c.type===ft)&&(!fc||c.color===fc)).forEach(c=>{
+  const list=catalog.filter(c=>ft==='cat'?c.cat===fc:(!ft||c.type===ft)&&(!fc||c.color===fc));
+  $('#catCount').textContent=list.length+' ta kartinka';
+  list.slice(0,shown).forEach(c=>{
     const d=document.createElement('div');d.className='card';
-    d.innerHTML=`<img alt=""><span class="tp"></span><div class="nm"></div><button class="x" title="O’chirish">×</button>`;
-    d.querySelector('img').src=c.src;d.querySelector('.tp').textContent=c.type==='oynali'?'Oynali':'Islomiy';
+    d.innerHTML=`<img alt="" loading="lazy"><span class="tp"></span><div class="nm"></div><button class="x" title="O’chirish">×</button>`;
+    d.querySelector('img').src=c.src;d.querySelector('.tp').textContent=c.type==='oynali'?(c.cat||'Oynali'):'Islomiy';
     d.querySelector('.nm').textContent=c.name+(c.color?' · '+c.color:'')+(c.mat?' · '+c.mat:'');
-    d.onclick=e=>{if(e.target.classList.contains('x')){catalog=catalog.filter(x=>x.id!==c.id);saveCatalog();renderCat();return}addItem(c)};
+    d.onclick=e=>{if(e.target.classList.contains('x')){if(c.shared)hidden.add(c.id);catalog=catalog.filter(x=>x.id!==c.id);saveCatalog();renderCat();return}addItem(c)};
     box.appendChild(d);
   });
+  if(list.length>shown){const m=document.createElement('button');m.className='more';m.textContent=`Ko’proq ko’rsatish (${list.length-shown})`;m.onclick=()=>{shown+=60;renderCat()};box.appendChild(m)}
   if(!box.children.length)box.innerHTML='<p class="note">Bu rangda mahsulot yo’q</p>';
 }
 /* add products: queue of files → name modal */
@@ -380,6 +394,6 @@ $('#copyBtn').onclick=async()=>{try{const b=await (await fetch($('#resImg').src)
 async function toPng(blob){const im=await loadImg(URL.createObjectURL(blob));const c=document.createElement('canvas');c.width=im.width;c.height=im.height;c.getContext('2d').drawImage(im,0,0);return new Promise(r=>c.toBlob(r,'image/png'))}
 
 /* ---------- boot ---------- */
-loadCatalog();renderCat();setWall(sampleWall());
+loadCatalog().then(renderCat);setWall(sampleWall());
 })();
 </script>
